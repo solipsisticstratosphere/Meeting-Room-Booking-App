@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import toast from 'react-hot-toast';
+import { Calendar, Users, CheckCircle2 } from 'lucide-react';
 import { Layout } from '../components/Layout';
 import { Loading } from '../components/Loading';
 import { Modal } from '../components/Modal';
@@ -9,7 +10,7 @@ import { roomsApi } from '../api/roomsApi';
 import { bookingsApi } from '../api/bookingsApi';
 import { useAppSelector } from '../store/hooks';
 import { getErrorMessage } from '../utils/errorUtils';
-import { formatDateTime } from '../utils/dateUtils';
+import { formatDateTime, formatDateTimeLocal, convertLocalToUTC } from '../utils/dateUtils';
 import { isBookingActive, isBookingEnded } from '../utils/bookingUtils';
 import type {
   MeetingRoom,
@@ -86,6 +87,8 @@ export const RoomDetails = () => {
     try {
       await bookingsApi.createBooking({
         ...data,
+        startTime: convertLocalToUTC(data.startTime),
+        endTime: convertLocalToUTC(data.endTime),
         meetingRoomId: id,
       });
       toast.success('Booking created successfully!');
@@ -193,8 +196,8 @@ export const RoomDetails = () => {
 
   const handleEditBookingClick = (booking: Booking) => {
     setEditingBooking(booking);
-    editBookingForm.setValue('startTime', booking.startTime.slice(0, 16));
-    editBookingForm.setValue('endTime', booking.endTime.slice(0, 16));
+    editBookingForm.setValue('startTime', formatDateTimeLocal(booking.startTime));
+    editBookingForm.setValue('endTime', formatDateTimeLocal(booking.endTime));
     editBookingForm.setValue('description', booking.description || '');
     setIsEditBookingModalOpen(true);
   };
@@ -204,7 +207,12 @@ export const RoomDetails = () => {
 
     setIsSubmitting(true);
     try {
-      await bookingsApi.updateBooking(editingBooking.id, data);
+      const updateData: UpdateBookingData = {
+        ...data,
+        startTime: data.startTime ? convertLocalToUTC(data.startTime) : undefined,
+        endTime: data.endTime ? convertLocalToUTC(data.endTime) : undefined,
+      };
+      await bookingsApi.updateBooking(editingBooking.id, updateData);
       toast.success('Booking updated successfully!');
       setIsEditBookingModalOpen(false);
       setEditingBooking(null);
@@ -238,160 +246,252 @@ export const RoomDetails = () => {
   return (
     <Layout>
       <div className="space-y-8">
-        <div className="flex justify-between items-start">
-          <div>
-            <h1 className="text-3xl font-bold text-gray-900">{room.name}</h1>
-            <p className="text-gray-600 mt-2">{room.description || 'No description'}</p>
-            <p className="text-sm text-gray-400 mt-1">Created by {room.createdBy.name}</p>
-          </div>
-          <div className="flex space-x-2">
+        <div className="card border-l-4 border-l-primary-600">
+          <div className="flex flex-col lg:flex-row justify-between items-start gap-4">
+            <div className="flex-1">
+              <h1 className="text-3xl md:text-4xl font-bold text-gray-900 mb-3">{room.name}</h1>
+              <p className="text-gray-600 text-lg mb-2">{room.description || 'No description'}</p>
+              <p className="text-sm text-gray-500">Created by {room.createdBy.name}</p>
+            </div>
             {isAdmin && (
-              <>
-                <button onClick={handleEditRoomClick} className="btn-secondary">
-                  Edit Room
-                </button>
-                <button onClick={() => setIsAddUserModalOpen(true)} className="btn-secondary">
-                  Add User
-                </button>
-                <button onClick={() => setIsBookingModalOpen(true)} className="btn-primary">
-                  Create Booking
-                </button>
-                <button onClick={handleDeleteRoom} className="btn-danger">
-                  Delete Room
-                </button>
-              </>
+              <div className="flex flex-wrap items-center gap-3">
+                <div className="flex gap-2">
+                  <button onClick={() => setIsAddUserModalOpen(true)} className="btn-secondary">
+                    + Add User
+                  </button>
+                  <button onClick={() => setIsBookingModalOpen(true)} className="btn-primary shadow-lg hover:shadow-xl">
+                    + Create Booking
+                  </button>
+                </div>
+                <div className="h-6 w-px bg-gray-300"></div>
+                <div className="flex gap-2">
+                  <button onClick={handleEditRoomClick} className="btn-secondary">
+                    Edit Room
+                  </button>
+                  <button onClick={handleDeleteRoom} className="btn-danger">
+                    Delete Room
+                  </button>
+                </div>
+              </div>
             )}
           </div>
         </div>
 
         <div className="card">
-          <h2 className="text-xl font-semibold mb-4">Members ({room.roomUsers.length})</h2>
-          <div className="space-y-2">
-            {room.roomUsers.map((roomUser) => (
-              <div
-                key={roomUser.id}
-                className="flex justify-between items-center p-3 bg-gray-50 rounded"
-              >
-                <div>
-                  <p className="font-medium">{roomUser.user.name}</p>
-                  <p className="text-sm text-gray-500">{roomUser.user.email}</p>
-                </div>
-                <div className="flex items-center space-x-3">
-                  {isAdmin && roomUser.userId !== room.createdById && roomUser.userId !== currentUser?.id ? (
-                    <select
-                      value={roomUser.role}
-                      onChange={(e) =>
-                        handleChangeUserRole(roomUser.userId, e.target.value as RoomRole)
-                      }
-                      className="px-3 py-1 rounded-lg text-sm border border-gray-300 focus:outline-none focus:ring-2 focus:ring-primary-500"
-                    >
-                      <option value="USER">User</option>
-                      <option value="ADMIN">Admin</option>
-                    </select>
-                  ) : (
-                    <span
-                      className={`px-3 py-1 rounded-full text-xs font-medium ${
-                        roomUser.role === 'ADMIN'
-                          ? 'bg-primary-100 text-primary-800'
-                          : 'bg-gray-200 text-gray-800'
-                      }`}
-                    >
-                      {roomUser.role}
-                    </span>
-                  )}
-                  {isAdmin && roomUser.userId !== room.createdById && roomUser.userId !== currentUser?.id && (
-                    <button
-                      onClick={() => handleRemoveUser(roomUser.userId)}
-                      className="text-red-600 hover:text-red-800 text-sm"
-                    >
-                      Remove
-                    </button>
-                  )}
-                </div>
-              </div>
-            ))}
+          <div className="flex items-center justify-between mb-6">
+            <h2 className="text-2xl font-semibold text-gray-900">Members</h2>
+            <span className="px-3 py-1 bg-primary-100 text-primary-800 rounded-full text-sm font-medium">
+              {room.roomUsers.length} {room.roomUsers.length === 1 ? 'member' : 'members'}
+            </span>
           </div>
-        </div>
-
-        <div className="card">
-          <h2 className="text-xl font-semibold mb-4">
-            Bookings ({room.bookings?.length || 0})
-          </h2>
-          {!room.bookings || room.bookings.length === 0 ? (
-            <p className="text-gray-500">No bookings yet</p>
+          {room.roomUsers.length === 0 ? (
+            <p className="text-gray-500 text-center py-8">No members yet</p>
           ) : (
             <div className="space-y-3">
-              {room.bookings.map((booking: Booking) => (
-                <div key={booking.id} className="p-4 bg-gray-50 rounded-lg">
-                  <div className="flex justify-between items-start">
+              {room.roomUsers.map((roomUser) => (
+                <div
+                  key={roomUser.id}
+                  className="flex justify-between items-center p-4 bg-gray-50 rounded-lg border border-gray-100 hover:bg-gray-100 transition-colors"
+                >
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-full bg-primary-600 flex items-center justify-center text-white font-semibold">
+                      {roomUser.user.name.charAt(0).toUpperCase()}
+                    </div>
                     <div>
-                      <p className="font-medium text-gray-900">
-                        {formatDateTime(booking.startTime)} - {formatDateTime(booking.endTime)}
-                      </p>
-                      <p className="text-sm text-gray-600 mt-1">
-                        {booking.description || 'No description'}
-                      </p>
-                      <p className="text-xs text-gray-400 mt-1">Booked by {booking.user.name}</p>
-
-                      {booking.participants && booking.participants.length > 0 && (
-                        <div className="mt-3">
-                          <p className="text-xs font-medium text-gray-700 mb-1">
-                            Participants ({booking.participants.length}):
-                          </p>
-                          <div className="flex flex-wrap gap-1">
-                            {booking.participants.map((participant) => (
-                              <span
-                                key={participant.id}
-                                className="text-xs px-2 py-1 bg-primary-100 text-primary-800 rounded"
-                              >
-                                {participant.user.name}
-                              </span>
-                            ))}
-                          </div>
-                        </div>
-                      )}
+                      <p className="font-medium text-gray-900">{roomUser.user.name}</p>
+                      <p className="text-sm text-gray-500">{roomUser.user.email}</p>
                     </div>
-
-                    <div className="flex flex-col space-y-2">
-                      {isAdmin && (
-                        <>
-                          <button
-                            onClick={() => handleEditBookingClick(booking)}
-                            className="text-primary-600 hover:text-primary-800 text-sm"
-                          >
-                            Edit
-                          </button>
-                          <button
-                            onClick={() => handleDeleteBooking(booking.id)}
-                            className="text-red-600 hover:text-red-800 text-sm"
-                          >
-                            Delete
-                          </button>
-                        </>
-                      )}
-
-                      {/* Join/Leave booking buttons - only for active bookings */}
-                      {isBookingActive(booking) && (
-                        booking.participants?.some(p => p.userId === currentUser?.id) ? (
-                          <button
-                            onClick={() => handleLeaveBooking(booking.id)}
-                            className="text-sm text-gray-600 hover:text-gray-800"
-                          >
-                            Leave
-                          </button>
-                        ) : (
-                          <button
-                            onClick={() => handleJoinBooking(booking.id)}
-                            className="text-sm text-primary-600 hover:text-primary-800"
-                          >
-                            Join
-                          </button>
-                        )
-                      )}
-                    </div>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    {isAdmin && roomUser.userId !== room.createdById && roomUser.userId !== currentUser?.id ? (
+                      <>
+                        <select
+                          value={roomUser.role}
+                          onChange={(e) =>
+                            handleChangeUserRole(roomUser.userId, e.target.value as RoomRole)
+                          }
+                          className="px-3 py-1.5 pr-10 rounded-lg text-sm border border-gray-300 bg-white focus:outline-none focus:ring-2 focus:ring-primary-500 transition-all"
+                        >
+                          <option value="USER">User</option>
+                          <option value="ADMIN">Admin</option>
+                        </select>
+                        <button
+                          onClick={() => handleRemoveUser(roomUser.userId)}
+                          className="text-red-600 hover:text-red-800 hover:bg-red-50 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors"
+                        >
+                          Remove
+                        </button>
+                      </>
+                    ) : (
+                      <span
+                        className={`px-3 py-1.5 rounded-full text-xs font-semibold ${
+                          roomUser.role === 'ADMIN'
+                            ? 'bg-primary-100 text-primary-800 border border-primary-200'
+                            : 'bg-gray-200 text-gray-800 border border-gray-300'
+                        }`}
+                      >
+                        {roomUser.role}
+                      </span>
+                    )}
                   </div>
                 </div>
               ))}
+            </div>
+          )}
+        </div>
+
+        <div className="card">
+          <div className="flex items-center justify-between mb-6">
+            <h2 className="text-2xl font-semibold text-gray-900">Bookings</h2>
+            <span className="px-3 py-1 bg-primary-100 text-primary-800 rounded-full text-sm font-medium">
+              {room.bookings?.length || 0} {(room.bookings?.length || 0) === 1 ? 'booking' : 'bookings'}
+            </span>
+          </div>
+          {!room.bookings || room.bookings.length === 0 ? (
+            <div className="text-center py-12">
+              <div className="flex justify-center mb-4">
+                <Calendar className="w-12 h-12 text-primary-600" />
+              </div>
+              <p className="text-gray-500 text-lg">No bookings yet</p>
+              {isAdmin && (
+                <button 
+                  onClick={() => setIsBookingModalOpen(true)} 
+                  className="btn-primary mt-4"
+                >
+                  Create First Booking
+                </button>
+              )}
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {room.bookings.map((booking: Booking) => {
+                const ended = isBookingEnded(booking);
+                return (
+                  <div 
+                    key={booking.id} 
+                    className={`p-5 rounded-lg border transition-all ${
+                      ended 
+                        ? 'bg-gradient-to-r from-gray-100 to-gray-50 border-gray-300 opacity-75' 
+                        : 'bg-gradient-to-r from-gray-50 to-white border-gray-200 hover:shadow-md'
+                    }`}
+                  >
+                    <div className="flex flex-col lg:flex-row justify-between items-start gap-4">
+                      <div className="flex-1">
+                        <div className="flex items-center gap-3 mb-2">
+                          <p className={`font-semibold text-lg ${
+                            ended ? 'text-gray-500' : 'text-gray-900'
+                          }`}>
+                            {formatDateTime(booking.startTime)}
+                          </p>
+                          <span className={ended ? 'text-gray-400' : 'text-gray-400'}>→</span>
+                          <p className={`font-semibold text-lg ${
+                            ended ? 'text-gray-500' : 'text-gray-900'
+                          }`}>
+                            {formatDateTime(booking.endTime)}
+                          </p>
+                          {ended && (
+                            <span className="flex items-center gap-1 px-2 py-1 bg-gray-200 text-gray-600 rounded-full text-xs font-medium ml-2">
+                              <CheckCircle2 className="w-3 h-3" />
+                              Completed
+                            </span>
+                          )}
+                        </div>
+                        {booking.description && (
+                          <p className={`mb-3 p-3 rounded-lg border ${
+                            ended 
+                              ? 'text-gray-500 bg-gray-100 border-gray-200' 
+                              : 'text-gray-700 bg-white border-gray-100'
+                          }`}>
+                            {booking.description}
+                          </p>
+                        )}
+                        <div className={`flex items-center gap-4 text-sm ${
+                          ended ? 'text-gray-500' : 'text-gray-600'
+                        }`}>
+                          <span>Booked by <span className="font-medium">{booking.user.name}</span></span>
+                          {booking.participants && booking.participants.length > 0 && (
+                            <span className="flex items-center gap-1">
+                              <Users className={`w-4 h-4 ${
+                                ended ? 'text-gray-500' : 'text-primary-600'
+                              }`} />
+                              {booking.participants.length} {booking.participants.length === 1 ? 'participant' : 'participants'}
+                            </span>
+                          )}
+                        </div>
+
+                        {booking.participants && booking.participants.length > 0 && (
+                          <div className={`mt-4 pt-4 border-t ${
+                            ended ? 'border-gray-300' : 'border-gray-200'
+                          }`}>
+                            <p className={`text-xs font-medium mb-2 ${
+                              ended ? 'text-gray-500' : 'text-gray-700'
+                            }`}>
+                              Participants:
+                            </p>
+                            <div className="flex flex-wrap gap-2">
+                              {booking.participants.map((participant) => (
+                                <span
+                                  key={participant.id}
+                                  className={`text-xs px-3 py-1.5 rounded-full border font-medium ${
+                                    ended 
+                                      ? 'bg-gray-200 text-gray-600 border-gray-300' 
+                                      : 'bg-primary-100 text-primary-800 border-primary-200'
+                                  }`}
+                                >
+                                  {participant.user.name}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="flex flex-col gap-2">
+                        {isAdmin && (
+                          <>
+                            <button
+                              onClick={() => handleEditBookingClick(booking)}
+                              className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors whitespace-nowrap ${
+                                ended
+                                  ? 'text-gray-400 cursor-not-allowed'
+                                  : 'text-primary-600 hover:text-primary-800 hover:bg-primary-50'
+                              }`}
+                              disabled={ended}
+                            >
+                              Edit
+                            </button>
+                            <button
+                              onClick={() => handleDeleteBooking(booking.id)}
+                              className="text-red-600 hover:text-red-800 hover:bg-red-50 px-4 py-2 rounded-lg text-sm font-medium transition-colors whitespace-nowrap"
+                            >
+                              Delete
+                            </button>
+                          </>
+                        )}
+
+                        {/* Join/Leave booking buttons - only for active bookings */}
+                        {isBookingActive(booking) && (
+                          booking.participants?.some(p => p.userId === currentUser?.id) ? (
+                            <button
+                              onClick={() => handleLeaveBooking(booking.id)}
+                              className="text-gray-700 hover:text-gray-900 hover:bg-gray-100 px-4 py-2 rounded-lg text-sm font-medium transition-colors whitespace-nowrap border border-gray-300"
+                            >
+                              Leave
+                            </button>
+                          ) : (
+                            <button
+                              onClick={() => handleJoinBooking(booking.id)}
+                              className="text-primary-700 hover:text-primary-900 hover:bg-primary-50 px-4 py-2 rounded-lg text-sm font-medium transition-colors whitespace-nowrap border border-primary-300"
+                            >
+                              Join
+                            </button>
+                          )
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           )}
         </div>
@@ -480,7 +580,7 @@ export const RoomDetails = () => {
             <label className="label">Description</label>
             <textarea
               {...bookingForm.register('description')}
-              className="input"
+              className="input resize-none"
               rows={3}
               placeholder="Enter booking description (optional)"
             />
@@ -525,7 +625,7 @@ export const RoomDetails = () => {
             <label className="label">Description</label>
             <textarea
               {...editRoomForm.register('description')}
-              className="input"
+              className="input resize-none"
               rows={3}
               placeholder="Enter room description (optional)"
             />
@@ -614,7 +714,7 @@ export const RoomDetails = () => {
             <label className="label">Description</label>
             <textarea
               {...editBookingForm.register('description')}
-              className="input"
+              className="input resize-none"
               rows={3}
               placeholder="Enter booking description (optional)"
               disabled={!!(editingBooking && isBookingEnded(editingBooking))}
