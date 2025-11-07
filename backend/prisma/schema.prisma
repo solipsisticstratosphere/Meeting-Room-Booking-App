@@ -18,9 +18,10 @@ model User {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  createdRooms MeetingRoom[] @relation("CreatedRooms")
-  bookings     Booking[]
-  roomUsers    RoomUser[]
+  createdRooms        MeetingRoom[]         @relation("CreatedRooms")
+  bookings            Booking[]
+  roomUsers           RoomUser[]
+  bookingParticipants BookingParticipant[]
 
   @@map("users")
 }
@@ -50,8 +51,9 @@ model Booking {
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
-  meetingRoom MeetingRoom @relation(fields: [meetingRoomId], references: [id], onDelete: Cascade)
-  user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  meetingRoom MeetingRoom          @relation(fields: [meetingRoomId], references: [id], onDelete: Cascade)
+  user        User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  participants BookingParticipant[]
 
   @@map("bookings")
 }
@@ -68,6 +70,19 @@ model RoomUser {
 
   @@unique([meetingRoomId, userId])
   @@map("room_users")
+}
+
+model BookingParticipant {
+  id        String   @id @default(uuid())
+  bookingId String
+  userId    String
+  createdAt DateTime @default(now())
+
+  booking Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([bookingId, userId])
+  @@map("booking_participants")
 }
 
 enum RoomRole {

@@ -1,6 +1,8 @@
 import { Response } from 'express';
 import { AuthRequest } from '../middleware/authMiddleware';
 import prisma from '../utils/prisma';
+import { bookingInclude } from '../utils/prismaIncludes';
+import { cleanupEndedBookings } from '../utils/bookingCleanup';
 
 const checkTimeConflict = async (
   meetingRoomId: string,
@@ -46,24 +48,11 @@ export const getRoomBookings = async (req: AuthRequest, res: Response) => {
   try {
     const { roomId } = req.params;
 
+    await cleanupEndedBookings();
+
     const bookings = await prisma.booking.findMany({
       where: { meetingRoomId: roomId },
-      include: {
-        user: {
-          select: {
-            id: true,
-            name: true,
-            email: true
-          }
-        },
-        meetingRoom: {
-          select: {
-            id: true,
-            name: true,
-            description: true
-          }
-        }
-      },
+      include: bookingInclude,
       orderBy: {
         startTime: 'asc'
       }
@@ -81,17 +70,11 @@ export const getMyBookings = async (req: AuthRequest, res: Response) => {
   try {
     const userId = req.userId!;
 
+    await cleanupEndedBookings();
+
     const bookings = await prisma.booking.findMany({
       where: { userId },
-      include: {
-        meetingRoom: {
-          select: {
-            id: true,
-            name: true,
-            description: true
-          }
-        }
-      },
+      include: bookingInclude,
       orderBy: {
         startTime: 'asc'
       }
@@ -109,24 +92,11 @@ export const getBookingById = async (req: AuthRequest, res: Response) => {
   try {
     const { id } = req.params;
 
+    await cleanupEndedBookings();
+
     const booking = await prisma.booking.findUnique({
       where: { id },
-      include: {
-        user: {
-          select: {
-            id: true,
-            name: true,
-            email: true
-          }
-        },
-        meetingRoom: {
-          select: {
-            id: true,
-            name: true,
-            description: true
-          }
-        }
-      }
+      include: bookingInclude
     });
 
     if (!booking) {
@@ -184,22 +154,7 @@ export const createBooking = async (req: AuthRequest, res: Response) => {
         endTime: end,
         description
       },
-      include: {
-        user: {
-          select: {
-            id: true,
-            name: true,
-            email: true
-          }
-        },
-        meetingRoom: {
-          select: {
-            id: true,
-            name: true,
-            description: true
-          }
-        }
-      }
+      include: bookingInclude
     });
 
     res.status(201).json({
@@ -222,7 +177,8 @@ export const updateBooking = async (req: AuthRequest, res: Response) => {
     const existingBooking = await prisma.booking.findUnique({
       where: { id },
       include: {
-        meetingRoom: true
+        meetingRoom: true,
+        participants: true
       }
     });
 
@@ -246,6 +202,12 @@ export const updateBooking = async (req: AuthRequest, res: Response) => {
     const updateData: any = {};
 
     if (startTime || endTime) {
+      if (existingBooking.participants && existingBooking.participants.length > 0) {
+        return res.status(400).json({
+          message: 'Cannot change booking time when there are participants. Please remove all participants first.'
+        });
+      }
+
       const start = startTime ? new Date(startTime) : existingBooking.startTime;
       const end = endTime ? new Date(endTime) : existingBooking.endTime;
 
@@ -275,22 +237,7 @@ export const updateBooking = async (req: AuthRequest, res: Response) => {
     const booking = await prisma.booking.update({
       where: { id },
       data: updateData,
-      include: {
-        user: {
-          select: {
-            id: true,
-            name: true,
-            email: true
-          }
-        },
-        meetingRoom: {
-          select: {
-            id: true,
-            name: true,
-            description: true
-          }
-        }
-      }
+      include: bookingInclude
     });
 
     res.json({
@@ -337,6 +284,126 @@ export const deleteBooking = async (req: AuthRequest, res: Response) => {
     res.json({ message: 'Booking deleted successfully' });
   } catch (error) {
     console.error('Delete booking error:', error);
+    res.status(500).json({ message: 'Internal server error' });
+  }
+};
+
+// Join booking as participant
+export const joinBooking = async (req: AuthRequest, res: Response) => {
+  try {
+    const userId = req.userId!;
+    const { id } = req.params;
+
+    await cleanupEndedBookings();
+
+    const booking = await prisma.booking.findUnique({
+      where: { id },
+      include: {
+        meetingRoom: true
+      }
+    });
+
+    if (!booking) {
+      return res.status(404).json({ message: 'Booking not found' });
+    }
+
+    const roomUser = await prisma.roomUser.findUnique({
+      where: {
+        meetingRoomId_userId: {
+          meetingRoomId: booking.meetingRoomId,
+          userId
+        }
+      }
+    });
+
+    if (!roomUser) {
+      return res.status(403).json({ message: 'You do not have access to this room' });
+    }
+
+    const existingParticipant = await prisma.bookingParticipant.findUnique({
+      where: {
+        bookingId_userId: {
+          bookingId: id,
+          userId
+        }
+      }
+    });
+
+    if (existingParticipant) {
+      return res.status(400).json({ message: 'You are already a participant of this booking' });
+    }
+
+    const now = new Date();
+    const startTime = new Date(booking.startTime);
+    const endTime = new Date(booking.endTime);
+
+    if (now < startTime) {
+      return res.status(400).json({ message: 'Cannot join a booking that has not started yet' });
+    }
+
+    if (now >= endTime) {
+      return res.status(400).json({ message: 'Cannot join a booking that has already ended' });
+    }
+
+    // Add participant
+    const participant = await prisma.bookingParticipant.create({
+      data: {
+        bookingId: id,
+        userId
+      },
+      include: {
+        user: {
+          select: {
+            id: true,
+            name: true,
+            email: true
+          }
+        }
+      }
+    });
+
+    res.status(201).json({
+      message: 'Joined booking successfully',
+      participant
+    });
+  } catch (error) {
+    console.error('Join booking error:', error);
+    res.status(500).json({ message: 'Internal server error' });
+  }
+};
+
+// Leave booking as participant
+export const leaveBooking = async (req: AuthRequest, res: Response) => {
+  try {
+    const userId = req.userId!;
+    const { id } = req.params;
+
+    const participant = await prisma.bookingParticipant.findUnique({
+      where: {
+        bookingId_userId: {
+          bookingId: id,
+          userId
+        }
+      }
+    });
+
+    if (!participant) {
+      return res.status(404).json({ message: 'You are not a participant of this booking' });
+    }
+
+    // Remove participant
+    await prisma.bookingParticipant.delete({
+      where: {
+        bookingId_userId: {
+          bookingId: id,
+          userId
+        }
+      }
+    });
+
+    res.json({ message: 'Left booking successfully' });
+  } catch (error) {
+    console.error('Leave booking error:', error);
     res.status(500).json({ message: 'Internal server error' });
   }
 };

@@ -156,3 +156,8 @@ export const addRoomUserValidation = [
   validateRole(),
   handleValidationErrors
 ];
+
+export const updateUserRoleValidation = [
+  validateRole(),
+  handleValidationErrors
+];

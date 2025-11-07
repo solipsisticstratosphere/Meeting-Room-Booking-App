@@ -7,12 +7,14 @@ import {
   deleteRoom,
   addUserToRoom,
   removeUserFromRoom,
-  getMyRooms
+  getMyRooms,
+  updateUserRole
 } from '../controllers/roomsController';
 import {
   createRoomValidation,
   updateRoomValidation,
-  addRoomUserValidation
+  addRoomUserValidation,
+  updateUserRoleValidation
 } from '../middleware/validationMiddleware';
 import { authenticateToken } from '../middleware/authMiddleware';
 
@@ -41,6 +43,9 @@ router.delete('/:id', deleteRoom);
 
 // Post /api/rooms/:id/users - Add user to room
 router.post('/:id/users', addRoomUserValidation, addUserToRoom);
+
+// PATCH /api/rooms/:id/users/:userId - Update user role in room
+router.patch('/:id/users/:userId', updateUserRoleValidation, updateUserRole);
 
 // DELETE /api/rooms/:id/users/:userId - Remove user from room
 router.delete('/:id/users/:userId', removeUserFromRoom);

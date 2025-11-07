@@ -5,7 +5,9 @@ import {
   getBookingById,
   createBooking,
   updateBooking,
-  deleteBooking
+  deleteBooking,
+  joinBooking,
+  leaveBooking
 } from '../controllers/bookingsController';
 import {
   createBookingValidation,
@@ -34,5 +36,11 @@ router.put('/:id', updateBookingValidation, updateBooking);
 
 // DELETE /api/bookings/:id - Delete booking
 router.delete('/:id', deleteBooking);
+
+// POST /api/bookings/:id/join - Join booking as participant
+router.post('/:id/join', joinBooking);
+
+// DELETE /api/bookings/:id/leave - Leave booking as participant
+router.delete('/:id/leave', leaveBooking);
 
 export default router;
